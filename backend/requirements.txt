@@ -64,7 +64,7 @@ mkdocs==1.5.3
 mkdocs-material==9.4.7
 
 # Financial Calculations and Matching Engine
-decimal==1.70
+# decimal is built-in to Python, no separate package needed
 pandas==2.1.4
 numpy==1.24.4
 scikit-learn==1.3.2
