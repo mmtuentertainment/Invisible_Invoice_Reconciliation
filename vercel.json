@@ -1,0 +1,150 @@
+{
+  "version": 2,
+  "name": "invoice-reconciliation-platform",
+  "alias": ["invoice-recon.com", "www.invoice-recon.com"],
+  "regions": ["iad1", "sfo1", "lhr1"],
+  "framework": "nextjs",
+  "buildCommand": "npm run build",
+  "installCommand": "npm ci",
+  "devCommand": "npm run dev",
+  "outputDirectory": ".next",
+  
+  "env": {
+    "NODE_ENV": "production",
+    "NEXT_PUBLIC_APP_URL": "https://invoice-recon.com",
+    "API_VERSION": "1.0.0"
+  },
+  
+  "build": {
+    "env": {
+      "NODE_ENV": "production",
+      "ANALYZE_BUNDLE": "false",
+      "SKIP_BUILD_STATIC_GENERATION": "false"
+    }
+  },
+  
+  "functions": {
+    "app/api/**/*.ts": {
+      "runtime": "@vercel/node",
+      "maxDuration": 30
+    },
+    "app/api/upload/**/*.ts": {
+      "runtime": "@vercel/node", 
+      "maxDuration": 60
+    },
+    "app/api/reports/**/*.ts": {
+      "runtime": "@vercel/node",
+      "maxDuration": 45
+    }
+  },
+  
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        {
+          "key": "Access-Control-Allow-Origin",
+          "value": "https://invoice-recon.com"
+        },
+        {
+          "key": "Access-Control-Allow-Methods", 
+          "value": "GET, POST, PUT, DELETE, OPTIONS"
+        },
+        {
+          "key": "Access-Control-Allow-Headers",
+          "value": "Content-Type, Authorization, Idempotency-Key"
+        },
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        },
+        {
+          "key": "X-XSS-Protection",
+          "value": "1; mode=block"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "key": "Permissions-Policy",
+          "value": "geolocation=(), microphone=(), camera=()"
+        }
+      ]
+    },
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "Strict-Transport-Security",
+          "value": "max-age=31536000; includeSubDomains"
+        },
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline' *.vercel-analytics.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: *.supabase.co; connect-src 'self' *.supabase.co *.vercel-analytics.com *.huggingface.co; font-src 'self';"
+        }
+      ]
+    }
+  ],
+  
+  "redirects": [
+    {
+      "source": "/docs",
+      "destination": "/api-docs",
+      "permanent": false
+    },
+    {
+      "source": "/health",
+      "destination": "/api/health",
+      "permanent": false
+    }
+  ],
+  
+  "rewrites": [
+    {
+      "source": "/api-docs",
+      "destination": "/api/docs"
+    },
+    {
+      "source": "/openapi.json",
+      "destination": "/api/openapi"
+    }
+  ],
+  
+  "crons": [
+    {
+      "path": "/api/cron/cleanup-expired-jobs",
+      "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/api/cron/generate-daily-reports", 
+      "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/cron/health-check-notification",
+      "schedule": "*/5 * * * *"
+    }
+  ],
+  
+  "cleanUrls": true,
+  "trailingSlash": false,
+  
+  "github": {
+    "enabled": true,
+    "autoAlias": true,
+    "autoJobCancelation": true,
+    "silent": false
+  },
+  
+  "images": {
+    "domains": [
+      "*.supabase.co",
+      "avatars.githubusercontent.com"
+    ],
+    "formats": ["image/webp", "image/avif"]
+  }
+}

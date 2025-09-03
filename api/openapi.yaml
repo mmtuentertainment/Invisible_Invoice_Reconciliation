@@ -1,0 +1,1833 @@
+openapi: 3.0.3
+info:
+  title: Invisible Invoice Reconciliation Platform API
+  description: |
+    REST API for the Invisible Invoice Reconciliation Platform - a multi-tenant SaaS solution 
+    that automates accounts payable workflows through intelligent 3-way matching.
+    
+    ## Authentication
+    This API uses JWT Bearer tokens obtained through Supabase Auth. All endpoints require authentication 
+    unless otherwise specified. Tokens include tenant context for multi-tenant isolation.
+    
+    ## Multi-Tenancy
+    All data operations are automatically scoped to the authenticated user's tenant through PostgreSQL 
+    Row Level Security (RLS) policies. No explicit tenant IDs are required in requests.
+    
+    ## Rate Limiting
+    - Authentication endpoints: 5 requests per minute per IP
+    - File upload endpoints: 10 requests per minute per user  
+    - All other endpoints: 1000 requests per minute per user
+    
+    ## Error Handling
+    All errors follow RFC 9457 Problem Details format with correlation IDs for debugging.
+  version: 1.0.0
+  contact:
+    name: API Support
+    email: support@invoice-recon.com
+    url: https://docs.invoice-recon.com
+  license:
+    name: Proprietary
+    url: https://invoice-recon.com/license
+  termsOfService: https://invoice-recon.com/terms
+
+servers:
+  - url: https://api.invoice-recon.com/v1
+    description: Production server
+  - url: https://staging-api.invoice-recon.com/v1  
+    description: Staging server
+  - url: https://dev-api.invoice-recon.com/v1
+    description: Development server
+
+paths:
+  # Authentication Endpoints
+  /auth/login:
+    post:
+      tags:
+        - Authentication
+      summary: User login
+      description: Authenticate user with email and password
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+      security: []
+
+  /auth/mfa/verify:
+    post:
+      tags:
+        - Authentication
+      summary: Verify MFA token
+      description: Complete MFA verification with TOTP code
+      operationId: verifyMFA
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MFAVerifyRequest'
+      responses:
+        '200':
+          description: MFA verification successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+      security: []
+
+  /auth/refresh:
+    post:
+      tags:
+        - Authentication
+      summary: Refresh access token
+      description: Exchange refresh token for new access token
+      operationId: refreshToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshTokenRequest'
+      responses:
+        '200':
+          description: Token refreshed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+      security: []
+
+  # Invoice Management Endpoints
+  /invoices:
+    get:
+      tags:
+        - Invoices
+      summary: List invoices
+      description: Retrieve paginated list of invoices with filtering and sorting
+      operationId: getInvoices
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Sort'
+        - name: status
+          in: query
+          description: Filter by invoice status
+          schema:
+            $ref: '#/components/schemas/InvoiceStatus'
+        - name: matching_status
+          in: query
+          description: Filter by matching status
+          schema:
+            $ref: '#/components/schemas/MatchingStatus'
+        - name: vendor_id
+          in: query
+          description: Filter by vendor ID
+          schema:
+            type: string
+            format: uuid
+        - name: date_from
+          in: query
+          description: Filter invoices from this date (inclusive)
+          schema:
+            type: string
+            format: date
+        - name: date_to
+          in: query
+          description: Filter invoices to this date (inclusive)
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Invoices retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvoiceList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    post:
+      tags:
+        - Invoices
+      summary: Create invoice
+      description: Create a new invoice manually
+      operationId: createInvoice
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateInvoiceRequest'
+      responses:
+        '201':
+          description: Invoice created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Invoice'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /invoices/{invoice_id}:
+    get:
+      tags:
+        - Invoices
+      summary: Get invoice
+      description: Retrieve single invoice by ID
+      operationId: getInvoice
+      parameters:
+        - $ref: '#/components/parameters/InvoiceId'
+      responses:
+        '200':
+          description: Invoice retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvoiceDetail'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    put:
+      tags:
+        - Invoices
+      summary: Update invoice
+      description: Update invoice details
+      operationId: updateInvoice
+      parameters:
+        - $ref: '#/components/parameters/InvoiceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateInvoiceRequest'
+      responses:
+        '200':
+          description: Invoice updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Invoice'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /invoices/import/csv:
+    post:
+      tags:
+        - Invoice Import
+      summary: Import invoices from CSV
+      description: Upload and process CSV file containing invoice data
+      operationId: importInvoicesCSV
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: CSV file containing invoice data
+                options:
+                  $ref: '#/components/schemas/CSVImportOptions'
+              required:
+                - file
+      responses:
+        '202':
+          description: CSV import started successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportJob'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+
+  /invoices/import/{job_id}/status:
+    get:
+      tags:
+        - Invoice Import
+      summary: Get import status
+      description: Check the status of a CSV import job
+      operationId: getImportStatus
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          description: Import job ID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Import status retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportJobStatus'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # Vendor Management Endpoints
+  /vendors:
+    get:
+      tags:
+        - Vendors
+      summary: List vendors
+      description: Retrieve paginated list of vendors
+      operationId: getVendors
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Sort'
+        - name: search
+          in: query
+          description: Search vendors by name
+          schema:
+            type: string
+        - name: status
+          in: query
+          description: Filter by vendor status
+          schema:
+            $ref: '#/components/schemas/VendorStatus'
+      responses:
+        '200':
+          description: Vendors retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VendorList'
+
+    post:
+      tags:
+        - Vendors
+      summary: Create vendor
+      description: Create a new vendor
+      operationId: createVendor
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateVendorRequest'
+      responses:
+        '201':
+          description: Vendor created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Vendor'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /vendors/{vendor_id}:
+    get:
+      tags:
+        - Vendors
+      summary: Get vendor
+      description: Retrieve single vendor by ID
+      operationId: getVendor
+      parameters:
+        - $ref: '#/components/parameters/VendorId'
+      responses:
+        '200':
+          description: Vendor retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Vendor'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /vendors/normalize:
+    post:
+      tags:
+        - Vendors
+      summary: Normalize vendor names
+      description: Run vendor name normalization and deduplication
+      operationId: normalizeVendors
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VendorNormalizationRequest'
+      responses:
+        '202':
+          description: Normalization job started
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NormalizationJob'
+
+  # Purchase Orders Endpoints  
+  /purchase-orders:
+    get:
+      tags:
+        - Purchase Orders
+      summary: List purchase orders
+      description: Retrieve paginated list of purchase orders
+      operationId: getPurchaseOrders
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Sort'
+        - name: status
+          in: query
+          description: Filter by PO status
+          schema:
+            $ref: '#/components/schemas/PurchaseOrderStatus'
+        - name: vendor_id
+          in: query
+          description: Filter by vendor ID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Purchase orders retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PurchaseOrderList'
+
+    post:
+      tags:
+        - Purchase Orders
+      summary: Create purchase order
+      description: Create a new purchase order
+      operationId: createPurchaseOrder
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePurchaseOrderRequest'
+      responses:
+        '201':
+          description: Purchase order created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PurchaseOrder'
+
+  # Matching Engine Endpoints
+  /matching/run:
+    post:
+      tags:
+        - Matching Engine
+      summary: Run 3-way matching
+      description: Execute 3-way matching for specified documents or all unmatched
+      operationId: runMatching
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MatchingRequest'
+      responses:
+        '202':
+          description: Matching job started
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MatchingJob'
+
+  /matching/exceptions:
+    get:
+      tags:
+        - Matching Engine
+      summary: List matching exceptions
+      description: Retrieve paginated list of matching exceptions requiring review
+      operationId: getMatchingExceptions
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+        - name: status
+          in: query
+          description: Filter by exception status
+          schema:
+            $ref: '#/components/schemas/ExceptionStatus'
+        - name: severity
+          in: query
+          description: Filter by exception severity
+          schema:
+            $ref: '#/components/schemas/ExceptionSeverity'
+        - name: assigned_to
+          in: query
+          description: Filter by assigned user ID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Exceptions retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExceptionList'
+
+  /matching/exceptions/{exception_id}/resolve:
+    post:
+      tags:
+        - Matching Engine
+      summary: Resolve matching exception
+      description: Approve, reject, or request more information for an exception
+      operationId: resolveException
+      parameters:
+        - name: exception_id
+          in: path
+          required: true
+          description: Exception ID
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResolveExceptionRequest'
+      responses:
+        '200':
+          description: Exception resolved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MatchException'
+
+  # Dashboard and Analytics Endpoints
+  /dashboard/stats:
+    get:
+      tags:
+        - Dashboard
+      summary: Get dashboard statistics
+      description: Retrieve key metrics for dashboard
+      operationId: getDashboardStats
+      parameters:
+        - name: period
+          in: query
+          description: Time period for statistics
+          schema:
+            type: string
+            enum: [today, week, month, quarter, year]
+            default: month
+      responses:
+        '200':
+          description: Statistics retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardStats'
+
+  /reports/matching-performance:
+    get:
+      tags:
+        - Reports
+      summary: Get matching performance report
+      description: Retrieve detailed matching performance metrics
+      operationId: getMatchingReport
+      parameters:
+        - name: start_date
+          in: query
+          required: true
+          description: Report start date
+          schema:
+            type: string
+            format: date
+        - name: end_date
+          in: query
+          required: true
+          description: Report end date
+          schema:
+            type: string
+            format: date
+        - name: format
+          in: query
+          description: Report format
+          schema:
+            type: string
+            enum: [json, csv, pdf]
+            default: json
+      responses:
+        '200':
+          description: Report generated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MatchingPerformanceReport'
+            text/csv:
+              schema:
+                type: string
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+
+  # System Health Endpoints
+  /health:
+    get:
+      tags:
+        - System
+      summary: Health check
+      description: Get system health status
+      operationId: healthCheck
+      responses:
+        '200':
+          description: System is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthCheck'
+        '503':
+          description: System is unhealthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthCheck'
+      security: []
+
+  /version:
+    get:
+      tags:
+        - System
+      summary: Get API version
+      description: Retrieve API version information
+      operationId: getVersion
+      responses:
+        '200':
+          description: Version information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Version'
+      security: []
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT access token obtained from Supabase Auth
+
+  parameters:
+    Page:
+      name: page
+      in: query
+      description: Page number (1-based)
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+
+    Limit:
+      name: limit
+      in: query
+      description: Number of items per page
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+
+    Sort:
+      name: sort
+      in: query
+      description: Sort criteria (field:direction)
+      schema:
+        type: string
+        example: "created_at:desc"
+
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: Unique key for idempotent operations
+      schema:
+        type: string
+        format: uuid
+
+    InvoiceId:
+      name: invoice_id
+      in: path
+      required: true
+      description: Invoice ID
+      schema:
+        type: string
+        format: uuid
+
+    VendorId:
+      name: vendor_id
+      in: path
+      required: true
+      description: Vendor ID
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            type: https://api.invoice-recon.com/errors/validation
+            title: Validation Failed
+            status: 400
+            detail: Request validation failed
+            instance: /v1/invoices
+            correlationId: 550e8400-e29b-41d4-a716-446655440000
+            errors:
+              - field: amount
+                message: Must be a positive number
+
+    Unauthorized:
+      description: Authentication required
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            type: https://api.invoice-recon.com/errors/authentication
+            title: Authentication Required
+            status: 401
+            detail: Valid JWT token required
+            instance: /v1/invoices
+            correlationId: 550e8400-e29b-41d4-a716-446655440001
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            type: https://api.invoice-recon.com/errors/not-found
+            title: Resource Not Found
+            status: 404
+            detail: The requested resource could not be found
+            instance: /v1/invoices/123
+            correlationId: 550e8400-e29b-41d4-a716-446655440002
+
+    Conflict:
+      description: Resource conflict
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            type: https://api.invoice-recon.com/errors/conflict
+            title: Resource Conflict
+            status: 409
+            detail: Idempotency key already used with different payload
+            instance: /v1/invoices
+            correlationId: 550e8400-e29b-41d4-a716-446655440003
+
+    PayloadTooLarge:
+      description: Request payload too large
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            type: https://api.invoice-recon.com/errors/payload-too-large
+            title: Payload Too Large
+            status: 413
+            detail: File size exceeds 50MB limit
+            instance: /v1/invoices/import/csv
+            correlationId: 550e8400-e29b-41d4-a716-446655440004
+
+    RateLimited:
+      description: Rate limit exceeded
+      headers:
+        Retry-After:
+          description: Seconds to wait before retrying
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            type: https://api.invoice-recon.com/errors/rate-limit
+            title: Rate Limit Exceeded
+            status: 429
+            detail: Too many requests, please try again later
+            instance: /v1/auth/login
+            correlationId: 550e8400-e29b-41d4-a716-446655440005
+
+  schemas:
+    # Authentication Schemas
+    LoginRequest:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+          example: user@company.com
+        password:
+          type: string
+          minLength: 8
+          example: SecurePassword123!
+
+    MFAVerifyRequest:
+      type: object
+      required:
+        - token
+        - code
+      properties:
+        token:
+          type: string
+          description: Temporary token from login response
+        code:
+          type: string
+          pattern: '^[0-9]{6}$'
+          example: '123456'
+
+    RefreshTokenRequest:
+      type: object
+      required:
+        - refresh_token
+      properties:
+        refresh_token:
+          type: string
+
+    AuthResponse:
+      type: object
+      properties:
+        access_token:
+          type: string
+          description: JWT access token (15 min expiry)
+        refresh_token:
+          type: string
+          description: Refresh token (7 day expiry)
+        expires_in:
+          type: integer
+          description: Token expiry in seconds
+          example: 900
+        user:
+          $ref: '#/components/schemas/User'
+
+    # User Schema
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        role:
+          type: string
+          enum: [admin, manager, member, viewer]
+        tenant_id:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+        last_login:
+          type: string
+          format: date-time
+
+    # Invoice Schemas
+    Invoice:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        invoice_number:
+          type: string
+          example: INV-2024-001
+        vendor_id:
+          type: string
+          format: uuid
+        po_id:
+          type: string
+          format: uuid
+          nullable: true
+        subtotal:
+          type: number
+          format: decimal
+          example: 1500.00
+        tax_amount:
+          type: number
+          format: decimal
+          example: 120.00
+        total_amount:
+          type: number
+          format: decimal
+          example: 1620.00
+        currency:
+          type: string
+          example: USD
+        invoice_date:
+          type: string
+          format: date
+        due_date:
+          type: string
+          format: date
+        received_date:
+          type: string
+          format: date
+        status:
+          $ref: '#/components/schemas/InvoiceStatus'
+        matching_status:
+          $ref: '#/components/schemas/MatchingStatus'
+        match_confidence:
+          type: number
+          format: decimal
+          minimum: 0
+          maximum: 100
+          example: 95.5
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    InvoiceDetail:
+      allOf:
+        - $ref: '#/components/schemas/Invoice'
+        - type: object
+          properties:
+            vendor:
+              $ref: '#/components/schemas/Vendor'
+            purchase_order:
+              $ref: '#/components/schemas/PurchaseOrder'
+              nullable: true
+            line_items:
+              type: array
+              items:
+                $ref: '#/components/schemas/InvoiceLineItem'
+            match_results:
+              type: array
+              items:
+                $ref: '#/components/schemas/MatchResult'
+
+    InvoiceLineItem:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        line_number:
+          type: integer
+        description:
+          type: string
+        sku:
+          type: string
+          nullable: true
+        quantity:
+          type: number
+          format: decimal
+        unit_price:
+          type: number
+          format: decimal
+        line_total:
+          type: number
+          format: decimal
+        tax_rate:
+          type: number
+          format: decimal
+        tax_amount:
+          type: number
+          format: decimal
+
+    InvoiceStatus:
+      type: string
+      enum:
+        - draft
+        - pending
+        - approved
+        - rejected
+        - paid
+        - cancelled
+
+    MatchingStatus:
+      type: string
+      enum:
+        - unmatched
+        - matched
+        - partially_matched
+        - exception
+
+    CreateInvoiceRequest:
+      type: object
+      required:
+        - invoice_number
+        - vendor_id
+        - total_amount
+        - invoice_date
+      properties:
+        invoice_number:
+          type: string
+        vendor_id:
+          type: string
+          format: uuid
+        po_id:
+          type: string
+          format: uuid
+          nullable: true
+        subtotal:
+          type: number
+          format: decimal
+        tax_amount:
+          type: number
+          format: decimal
+        total_amount:
+          type: number
+          format: decimal
+        currency:
+          type: string
+          default: USD
+        invoice_date:
+          type: string
+          format: date
+        due_date:
+          type: string
+          format: date
+        reference_number:
+          type: string
+        department:
+          type: string
+        line_items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CreateInvoiceLineItemRequest'
+
+    CreateInvoiceLineItemRequest:
+      type: object
+      required:
+        - line_number
+        - description
+        - quantity
+        - unit_price
+      properties:
+        line_number:
+          type: integer
+        description:
+          type: string
+        sku:
+          type: string
+        quantity:
+          type: number
+          format: decimal
+        unit_price:
+          type: number
+          format: decimal
+        tax_rate:
+          type: number
+          format: decimal
+
+    UpdateInvoiceRequest:
+      type: object
+      properties:
+        status:
+          $ref: '#/components/schemas/InvoiceStatus'
+        due_date:
+          type: string
+          format: date
+        reference_number:
+          type: string
+        department:
+          type: string
+
+    InvoiceList:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Invoice'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+
+    # CSV Import Schemas
+    CSVImportOptions:
+      type: object
+      properties:
+        has_header:
+          type: boolean
+          default: true
+        delimiter:
+          type: string
+          enum: [',', ';', '\t', '|']
+          default: ','
+        skip_validation:
+          type: boolean
+          default: false
+        auto_match:
+          type: boolean
+          default: true
+
+    ImportJob:
+      type: object
+      properties:
+        job_id:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/ImportJobStatus'
+        created_at:
+          type: string
+          format: date-time
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    ImportJobStatus:
+      type: object
+      properties:
+        job_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [queued, processing, completed, failed]
+        progress:
+          type: object
+          properties:
+            total_rows:
+              type: integer
+            processed_rows:
+              type: integer
+            successful_rows:
+              type: integer
+            failed_rows:
+              type: integer
+            warnings:
+              type: integer
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              row_number:
+                type: integer
+              field:
+                type: string
+              message:
+                type: string
+        started_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+        estimated_completion:
+          type: string
+          format: date-time
+          nullable: true
+
+    # Vendor Schemas
+    Vendor:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        normalized_name:
+          type: string
+        display_name:
+          type: string
+          nullable: true
+        email:
+          type: string
+          format: email
+          nullable: true
+        phone:
+          type: string
+          nullable: true
+        website:
+          type: string
+          format: uri
+          nullable: true
+        address:
+          $ref: '#/components/schemas/Address'
+        tax_id:
+          type: string
+          nullable: true
+        business_type:
+          $ref: '#/components/schemas/BusinessType'
+        default_payment_terms:
+          type: integer
+          description: Default payment terms in days
+        status:
+          $ref: '#/components/schemas/VendorStatus'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    Address:
+      type: object
+      properties:
+        line_1:
+          type: string
+          nullable: true
+        line_2:
+          type: string
+          nullable: true
+        city:
+          type: string
+          nullable: true
+        state_province:
+          type: string
+          nullable: true
+        postal_code:
+          type: string
+          nullable: true
+        country:
+          type: string
+          default: US
+
+    BusinessType:
+      type: string
+      enum:
+        - corporation
+        - llc
+        - partnership
+        - sole_proprietorship
+        - other
+
+    VendorStatus:
+      type: string
+      enum:
+        - active
+        - inactive
+        - blocked
+
+    CreateVendorRequest:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        website:
+          type: string
+          format: uri
+        address:
+          $ref: '#/components/schemas/Address'
+        tax_id:
+          type: string
+        business_type:
+          $ref: '#/components/schemas/BusinessType'
+        default_payment_terms:
+          type: integer
+
+    VendorList:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Vendor'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+
+    VendorNormalizationRequest:
+      type: object
+      properties:
+        threshold:
+          type: number
+          format: decimal
+          minimum: 0
+          maximum: 100
+          default: 80
+          description: Similarity threshold for potential duplicates
+        auto_merge:
+          type: boolean
+          default: false
+          description: Automatically merge high confidence duplicates
+
+    NormalizationJob:
+      type: object
+      properties:
+        job_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [queued, processing, completed, failed]
+        potential_duplicates:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+
+    # Purchase Order Schemas
+    PurchaseOrder:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        po_number:
+          type: string
+        vendor_id:
+          type: string
+          format: uuid
+        subtotal:
+          type: number
+          format: decimal
+        tax_amount:
+          type: number
+          format: decimal
+        total_amount:
+          type: number
+          format: decimal
+        currency:
+          type: string
+        po_date:
+          type: string
+          format: date
+        expected_delivery_date:
+          type: string
+          format: date
+          nullable: true
+        status:
+          $ref: '#/components/schemas/PurchaseOrderStatus'
+        department:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    PurchaseOrderStatus:
+      type: string
+      enum:
+        - draft
+        - pending
+        - approved
+        - partially_received
+        - received
+        - closed
+        - cancelled
+
+    CreatePurchaseOrderRequest:
+      type: object
+      required:
+        - po_number
+        - vendor_id
+        - po_date
+      properties:
+        po_number:
+          type: string
+        vendor_id:
+          type: string
+          format: uuid
+        po_date:
+          type: string
+          format: date
+        expected_delivery_date:
+          type: string
+          format: date
+        department:
+          type: string
+        line_items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CreatePOLineItemRequest'
+
+    CreatePOLineItemRequest:
+      type: object
+      required:
+        - line_number
+        - description
+        - quantity
+        - unit_price
+      properties:
+        line_number:
+          type: integer
+        description:
+          type: string
+        sku:
+          type: string
+        quantity:
+          type: number
+          format: decimal
+        unit_price:
+          type: number
+          format: decimal
+
+    PurchaseOrderList:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/PurchaseOrder'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+
+    # Matching Engine Schemas
+    MatchingRequest:
+      type: object
+      properties:
+        invoice_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+          description: Specific invoice IDs to match (optional)
+        auto_approve_threshold:
+          type: number
+          format: decimal
+          minimum: 0
+          maximum: 100
+          default: 85
+          description: Auto-approve matches above this confidence level
+
+    MatchingJob:
+      type: object
+      properties:
+        job_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [queued, processing, completed, failed]
+        documents_to_process:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+
+    MatchResult:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        match_type:
+          type: string
+          enum: [2way_po_invoice, 2way_po_receipt, 2way_invoice_receipt, 3way_full]
+        match_status:
+          type: string
+          enum: [matched, exception, partial, failed]
+        overall_confidence:
+          type: number
+          format: decimal
+        field_scores:
+          type: object
+          properties:
+            vendor_score:
+              type: number
+              format: decimal
+            amount_score:
+              type: number
+              format: decimal
+            date_score:
+              type: number
+              format: decimal
+            po_number_score:
+              type: number
+              format: decimal
+        variance_amount:
+          type: number
+          format: decimal
+          nullable: true
+        approval_status:
+          type: string
+          enum: [pending, approved, rejected, auto_approved]
+        created_at:
+          type: string
+          format: date-time
+
+    MatchException:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        match_result_id:
+          type: string
+          format: uuid
+        exception_type:
+          $ref: '#/components/schemas/ExceptionType'
+        severity:
+          $ref: '#/components/schemas/ExceptionSeverity'
+        title:
+          type: string
+        description:
+          type: string
+        expected_value:
+          type: string
+        actual_value:
+          type: string
+        field_name:
+          type: string
+        variance_amount:
+          type: number
+          format: decimal
+        status:
+          $ref: '#/components/schemas/ExceptionStatus'
+        priority:
+          type: integer
+          minimum: 1
+          maximum: 5
+        assigned_to:
+          type: string
+          format: uuid
+          nullable: true
+        due_date:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    ExceptionType:
+      type: string
+      enum:
+        - amount_variance
+        - quantity_variance
+        - date_variance
+        - vendor_mismatch
+        - missing_document
+        - duplicate
+        - approval_required
+        - system_error
+
+    ExceptionSeverity:
+      type: string
+      enum:
+        - low
+        - medium
+        - high
+        - critical
+
+    ExceptionStatus:
+      type: string
+      enum:
+        - open
+        - in_review
+        - resolved
+        - dismissed
+        - escalated
+
+    ResolveExceptionRequest:
+      type: object
+      required:
+        - resolution
+      properties:
+        resolution:
+          type: string
+          enum: [approved, rejected, investigate]
+        notes:
+          type: string
+
+    ExceptionList:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/MatchException'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+
+    # Dashboard and Analytics Schemas
+    DashboardStats:
+      type: object
+      properties:
+        invoices:
+          type: object
+          properties:
+            total:
+              type: integer
+            pending:
+              type: integer
+            matched:
+              type: integer
+            exceptions:
+              type: integer
+        matching:
+          type: object
+          properties:
+            first_pass_rate:
+              type: number
+              format: decimal
+            auto_approval_rate:
+              type: number
+              format: decimal
+            avg_confidence:
+              type: number
+              format: decimal
+            exceptions_open:
+              type: integer
+        processing:
+          type: object
+          properties:
+            avg_processing_time_seconds:
+              type: number
+              format: decimal
+            cost_per_invoice:
+              type: number
+              format: decimal
+            invoices_processed_today:
+              type: integer
+        vendors:
+          type: object
+          properties:
+            total:
+              type: integer
+            duplicates_detected:
+              type: integer
+
+    MatchingPerformanceReport:
+      type: object
+      properties:
+        period:
+          type: object
+          properties:
+            start_date:
+              type: string
+              format: date
+            end_date:
+              type: string
+              format: date
+        summary:
+          type: object
+          properties:
+            total_invoices:
+              type: integer
+            matched_invoices:
+              type: integer
+            match_rate:
+              type: number
+              format: decimal
+            avg_confidence:
+              type: number
+              format: decimal
+            total_exceptions:
+              type: integer
+            avg_resolution_time_hours:
+              type: number
+              format: decimal
+        daily_metrics:
+          type: array
+          items:
+            type: object
+            properties:
+              date:
+                type: string
+                format: date
+              invoices_processed:
+                type: integer
+              match_rate:
+                type: number
+                format: decimal
+              exceptions_created:
+                type: integer
+              exceptions_resolved:
+                type: integer
+
+    # System Schemas
+    HealthCheck:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [healthy, degraded, unhealthy]
+        timestamp:
+          type: string
+          format: date-time
+        version:
+          type: string
+        services:
+          type: object
+          properties:
+            database:
+              $ref: '#/components/schemas/ServiceHealth'
+            functions:
+              $ref: '#/components/schemas/ServiceHealth'
+            storage:
+              $ref: '#/components/schemas/ServiceHealth'
+            auth:
+              $ref: '#/components/schemas/ServiceHealth'
+
+    ServiceHealth:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [healthy, degraded, unhealthy]
+        response_time_ms:
+          type: integer
+        last_check:
+          type: string
+          format: date-time
+
+    Version:
+      type: object
+      properties:
+        api_version:
+          type: string
+          example: 1.0.0
+        build_number:
+          type: string
+          example: 12345
+        build_date:
+          type: string
+          format: date-time
+        git_commit:
+          type: string
+          example: abc123def456
+
+    # Common Schemas
+    Error:
+      type: object
+      required:
+        - type
+        - title
+        - status
+      properties:
+        type:
+          type: string
+          format: uri
+          description: URI identifying the problem type
+        title:
+          type: string
+          description: Human-readable problem summary
+        status:
+          type: integer
+          description: HTTP status code
+        detail:
+          type: string
+          description: Human-readable problem details
+        instance:
+          type: string
+          description: URI of the specific problem instance
+        correlationId:
+          type: string
+          format: uuid
+          description: Unique identifier for debugging
+        errors:
+          type: array
+          description: Validation errors (for 400 responses)
+          items:
+            type: object
+            properties:
+              field:
+                type: string
+              message:
+                type: string
+
+    Pagination:
+      type: object
+      properties:
+        page:
+          type: integer
+        limit:
+          type: integer
+        total_pages:
+          type: integer
+        total_items:
+          type: integer
+        has_next:
+          type: boolean
+        has_prev:
+          type: boolean
+
+security:
+  - BearerAuth: []
+
+tags:
+  - name: Authentication
+    description: User authentication and authorization
+  - name: Invoices
+    description: Invoice management operations
+  - name: Invoice Import
+    description: Bulk invoice import operations
+  - name: Vendors
+    description: Vendor management operations
+  - name: Purchase Orders
+    description: Purchase order management
+  - name: Matching Engine
+    description: 3-way matching operations
+  - name: Dashboard
+    description: Dashboard and analytics
+  - name: Reports
+    description: Business reporting
+  - name: System
+    description: System health and information

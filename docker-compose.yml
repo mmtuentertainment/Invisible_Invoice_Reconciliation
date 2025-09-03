@@ -1,0 +1,232 @@
+# Docker Compose for Local Development
+# Provides local Supabase stack for development
+# Created: 2025-01-03
+
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:17-alpine
+    container_name: invoice-recon-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./supabase/migrations:/docker-entrypoint-initdb.d
+    networks:
+      - invoice-recon
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: invoice-recon-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - invoice-recon
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Supabase Local Stack (for full local development)
+  supabase:
+    image: supabase/supabase:latest
+    container_name: invoice-recon-supabase
+    restart: unless-stopped
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_DB: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      JWT_SECRET: your-jwt-secret-at-least-32-characters-long
+      ANON_KEY: your-anon-key-here
+      SERVICE_ROLE_KEY: your-service-role-key-here
+      SITE_URL: http://localhost:3000
+      API_EXTERNAL_URL: http://localhost:8000
+    ports:
+      - "8000:8000"  # Supabase API
+      - "3001:3000"  # Supabase Studio
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - invoice-recon
+
+  # Next.js Application (optional for containerized development)
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: invoice-recon-app
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      NEXT_PUBLIC_SUPABASE_URL: http://localhost:8000
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: your-anon-key-here
+      SUPABASE_SERVICE_ROLE_KEY: your-service-role-key-here
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/postgres
+      REDIS_URL: redis://redis:6379
+    ports:
+      - "3000:3000"
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/.next
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - invoice-recon
+    command: npm run dev
+
+  # PgAdmin (optional database administration)
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: invoice-recon-pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@invoice-recon.com
+      PGADMIN_DEFAULT_PASSWORD: admin123
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - invoice-recon
+    profiles:
+      - tools
+
+  # Redis Commander (optional Redis administration)
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: invoice-recon-redis-commander
+    restart: unless-stopped
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    ports:
+      - "8081:8081"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - invoice-recon
+    profiles:
+      - tools
+
+  # Mailhog (for email testing)
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: invoice-recon-mailhog
+    restart: unless-stopped
+    ports:
+      - "1025:1025"  # SMTP
+      - "8025:8025"  # Web UI
+    networks:
+      - invoice-recon
+    profiles:
+      - tools
+
+  # Prometheus (monitoring)
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: invoice-recon-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    networks:
+      - invoice-recon
+    profiles:
+      - monitoring
+
+  # Grafana (dashboards)
+  grafana:
+    image: grafana/grafana:latest
+    container_name: invoice-recon-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin123
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+    ports:
+      - "3001:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources
+    depends_on:
+      - prometheus
+    networks:
+      - invoice-recon
+    profiles:
+      - monitoring
+
+  # Nginx (reverse proxy for local development)
+  nginx:
+    image: nginx:alpine
+    container_name: invoice-recon-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./nginx/ssl:/etc/nginx/ssl
+    depends_on:
+      - app
+      - supabase
+    networks:
+      - invoice-recon
+    profiles:
+      - proxy
+
+networks:
+  invoice-recon:
+    driver: bridge
+    name: invoice-recon-network
+
+volumes:
+  postgres_data:
+    name: invoice-recon-postgres-data
+  redis_data:
+    name: invoice-recon-redis-data
+  pgadmin_data:
+    name: invoice-recon-pgadmin-data
+  prometheus_data:
+    name: invoice-recon-prometheus-data
+  grafana_data:
+    name: invoice-recon-grafana-data

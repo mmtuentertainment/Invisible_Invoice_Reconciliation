@@ -1,0 +1,179 @@
+# Supabase Configuration
+# Created: 2025-01-03
+
+project_id = "your-project-id"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+enabled = true
+port = 54322
+shadow_port = 54320
+major_version = 17
+
+# Database connection pooler
+[db.pooler]
+enabled = true
+port = 54329
+pool_mode = "transaction"
+default_pool_size = 25
+max_client_conn = 100
+
+[realtime]
+enabled = true
+ip_version = "IPv4"
+port = 54323
+
+# Realtime multiplayer features
+[realtime.multiplayer]
+enabled = true
+max_concurrent_users = 100
+
+[studio]
+enabled = true
+port = 54324
+api_url = "http://localhost:54321"
+
+# Authentication settings
+[auth]
+enabled = true
+site_url = "http://localhost:3000"
+additional_redirect_urls = ["https://localhost:3000"]
+jwt_expiry = 900  # 15 minutes
+enable_signup = true
+enable_confirmations = true
+enable_manual_linking = false
+
+# Auth email templates
+[auth.email]
+enable_signup = true
+double_confirm_changes = true
+enable_confirmations = true
+secure_password_change = true
+
+# External OAuth providers
+[auth.external.github]
+enabled = false
+client_id = "your-github-client-id"
+secret = "your-github-secret"
+redirect_uri = "http://localhost:54321/auth/v1/callback"
+
+[auth.external.google]
+enabled = false  
+client_id = "your-google-client-id"
+secret = "your-google-secret"
+redirect_uri = "http://localhost:54321/auth/v1/callback"
+
+# Multi-factor authentication
+[auth.mfa]
+enabled = true
+max_verified_factors = 10
+
+# Session configuration
+[auth.sessions]
+timebox = 86400  # 24 hours
+inactivity_timeout = 3600  # 1 hour
+
+# Inbound email configuration
+[inbound_email]
+enabled = false
+port = 54325
+smtp_port = 54326
+pop3_port = 54327
+
+# Storage configuration
+[storage]
+enabled = true
+port = 54328
+file_size_limit = "50MiB"
+image_transformation = { enabled = true }
+
+# Storage buckets
+[[storage.buckets]]
+name = "documents"
+public = false
+file_size_limit = "50MiB"
+allowed_mime_types = ["text/csv", "application/pdf", "image/jpeg", "image/png"]
+
+[[storage.buckets]]
+name = "avatars" 
+public = true
+file_size_limit = "2MiB"
+allowed_mime_types = ["image/jpeg", "image/png", "image/webp"]
+
+[[storage.buckets]]
+name = "exports"
+public = false
+file_size_limit = "100MiB" 
+allowed_mime_types = ["text/csv", "application/pdf", "application/zip"]
+
+# Edge Functions configuration
+[functions]
+enabled = true
+verify_jwt = true
+import_map = "./functions/import_map.json"
+
+# Edge Functions environment
+[functions.invoices]
+verify_jwt = true
+
+[functions.invoice-processor]
+verify_jwt = true
+
+[functions.matching-engine] 
+verify_jwt = true
+
+[functions.vendors]
+verify_jwt = true
+
+[functions.dashboard]
+verify_jwt = true
+
+[functions.health]
+verify_jwt = false  # Health check should be public
+
+# Local development settings
+[local_development]
+enabled = true
+
+# Analytics (optional)
+[analytics]
+enabled = true
+port = 54327
+
+# Experimental features
+[experimental]
+enabled = false
+
+# Environment variables for functions
+[env]
+HUGGINGFACE_API_KEY = "env(HUGGINGFACE_API_KEY)"
+JWT_SECRET = "env(JWT_SECRET)"
+WEBHOOK_SECRET = "env(WEBHOOK_SECRET)"
+
+# Database migrations
+[migrations]
+enabled = true
+
+# Database seeds
+[seed]
+enabled = true
+sql_paths = [
+  "./seed.sql"
+]
+
+# Extensions
+[extensions]
+enabled = true
+
+# GraphQL
+[graphql]
+enabled = true
+port = 54321
+max_depth = 10
+max_complexity = 60
